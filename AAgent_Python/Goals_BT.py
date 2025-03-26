@@ -57,5 +57,46 @@ class ForwardStop:
             await self.a_agent.send_message("action", "stop")
             self.state = self.STOPPED
 
+class Turn:
+    """
+    The drone randomly selects a degree of turn between 10 and 360,
+    along with a direction (left or right), and executes the turn accordingly.
+    Upon completion, the drone selects a new turn and repeats the process.
+    """
+
+    def __init__(self, a_agent):
+        self.a_agent = a_agent
+
+    async def run(self):
+        while True:  
+            # Choose a random direction to turn
+            turn_direction = random.choice(["tl", "tr"])
+            turn_degrees = random.randint(10, 360)
+
+            print(f"Turning {turn_degrees} degrees to the { 'left' if turn_direction == 'tl' else 'right' }")
+
+            current_rotation = self.a_agent.i_state.rotation["y"]
+            new_rotation = self.calculate_new_rotation(current_rotation, turn_degrees, turn_direction)
+
+            print(f"Current rotation: {current_rotation}° -> New rotation: {new_rotation}°")
+
+            turns_needed = turn_degrees // 5  #5 degrees per turn
+
+            for _ in range(turns_needed):
+                await self.a_agent.send_message("action", turn_direction)
+                await asyncio.sleep(0.3)
+
+            await self.a_agent.send_message("action", "nt")
+            print("Turn completed. Stopping rotation.")
+
+            await asyncio.sleep(2)
+
+    def calculate_new_rotation(self, current_rotation, turn_degrees, direction):
+        if direction == "tr":  #Right (more degrees)
+            new_rotation = (current_rotation + turn_degrees) % 360
+        else:  #Left (less degrees)
+            new_rotation = (current_rotation - turn_degrees) % 360
+
+        return new_rotation
 
 

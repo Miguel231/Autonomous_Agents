@@ -136,7 +136,8 @@ class AAgent:
         # Reference to the possible goals the agent can execute
         self.goals = {
             "DoNothing": Goals_BT.DoNothing(self),
-            "ForwardStop": Goals_BT.ForwardStop(self)
+            "ForwardStop": Goals_BT.ForwardStop(self),
+            "Turn": Goals_BT.Turn(self)
         }
 
         # Reference to the possible behaviour trees the agent can execute
