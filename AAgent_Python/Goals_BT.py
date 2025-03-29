@@ -165,44 +165,56 @@ class RandomRoam:
 
 class Avoid:
 	"""
-	The Drone advances while avoiding obstacles, ensuring it does not collide with objects, including exterior walls
+	The Drone advances while avoiding obstacles, ensuring it does not collide with objects, including exterior walls.
+	Incorporates ray distance to make smarter avoidance decisions.
 	"""
 	STOPPED = 0
 	MOVING = 1
 	TURNING = 2
 	STOP = 3
 
-	def __init__(self, a_agent):
+	def __init__(self, a_agent, sensitivity=1.0, max_turn_angle=30, center_multiplier=1.2, 
+				distance_threshold=0.5, emergency_distance=0.2):
 		self.a_agent = a_agent
 		self.rc_sensor = a_agent.rc_sensor
 		self.state = self.STOPPED
+		
+		# Adjustable parameters
+		self.sensitivity = sensitivity  # Overall sensitivity multiplier
+		self.max_turn_angle = max_turn_angle  # Maximum degrees to turn
+		self.center_multiplier = center_multiplier  # How much more to turn for central hits
+		self.distance_threshold = distance_threshold  # Maximum distance to consider for full turn effect (normalized 0-1)
+		self.emergency_distance = emergency_distance  # Distance at which emergency stop and turn is triggered
+		
+		# Calculate angles of each ray
 		angle_between_rays = self.rc_sensor.max_ray_degrees / self.rc_sensor.rays_per_direction
 		self.ray_degrees = [
 			angle_between_rays * (i - self.rc_sensor.rays_per_direction) for i in range(self.rc_sensor.num_rays)
 		]
-		# Define turn response to each ray hit
-		# We'll use a continuous function that:
-		# - Makes left rays turn right (positive values)
-		# - Makes right rays turn left (negative values)
-		# - Makes central impacts cause large turns
-		# - Makes extreme side impacts cause smaller turning adjustments
 		
-		# Parameters for our turn function
-		max_turn_angle = 45  # Maximum degrees to turn
-		center_multiplier = 1.5  # How much more to turn for central hits
+		# Define turn response to each ray hit using a smoother function
+		self.calculate_turn_responses()
+		
+	def calculate_turn_responses(self):
+		"""Calculate smooth turn responses for each ray"""
 		
 		# Function to calculate turn angle based on ray position
 		def turn_angle_for_ray(ray_angle):
 			# Normalize ray angle to -1 (leftmost) to 1 (rightmost)
 			normalized_pos = ray_angle / self.rc_sensor.max_ray_degrees
 			
-			# Sigmoid-like function with stronger response in middle
-			# For ray on right side (positive angle), turn left (negative angle)
-			base_angle = -max_turn_angle * normalized_pos
+			# Base angle - smoother curve with cubic function
+			# Negative values for right rays (turn left), positive for left rays (turn right)
+			# Using cubic function for smoother transition with less aggressive values
+			base_angle = -self.max_turn_angle * (normalized_pos * 0.6)  # Reduced from 0.8 to make it gentler
 			
-			# Amplify turn for central hits using a bell curve
-			central_factor = center_multiplier * (1 - abs(normalized_pos))
-			turn_angle = base_angle * (1 + central_factor)
+			# Apply central emphasis using a smoother bell curve
+			# This makes central impacts cause larger turns than extreme side impacts
+			central_weight = 1.0 - (abs(normalized_pos) ** 1.8)  # Increased from 1.5 for more gradual falloff
+			central_adjustment = self.center_multiplier * central_weight
+			
+			# Calculate final turn angle with sensitivity adjustment
+			turn_angle = base_angle * (1 + central_adjustment) * self.sensitivity
 			
 			return turn_angle
 		
@@ -224,59 +236,118 @@ class Avoid:
 					
 				elif self.state == self.MOVING:
 					sensor_hits = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.HIT]
+					sensor_distances = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.DISTANCE]
+					
+					# Count total hit rays for corner detection
+					total_hit_count = sum(sensor_hits)
+					
+					# Check for corner trap (many rays hit with small net turn angle)
+					corner_trap = total_hit_count >= 3
+					emergency_stop = False
 					
 					# If any hits detected
 					if any(sensor_hits):
-						# Calculate turn amount based on all detected rays
+						# Calculate turn amount based on all detected rays, weighted by distance
 						total_turn = 0
-						num_hits = 0
+						total_weight = 0
+						emergency_count = 0
 						
-						for i, hit in enumerate(sensor_hits):
+						# Determine if most hits are on left or right for corner escape
+						left_hits = sum(sensor_hits[:len(sensor_hits)//2])
+						right_hits = sum(sensor_hits[len(sensor_hits)//2:])
+						
+						for i, (hit, distance) in enumerate(zip(sensor_hits, sensor_distances)):
 							if hit == 1:  # If ray hit something
-								total_turn += self.ray_turn_degrees[i]
-								num_hits += 1
+								# Check for emergency stop condition
+								if distance <= self.emergency_distance:
+									emergency_count += 1
+								
+								# Calculate distance weight - closer objects have stronger effect
+								clamped_distance = max(distance, 0.01)
+								distance_weight = min(1.0, self.distance_threshold / clamped_distance)
+								
+								total_turn += self.ray_turn_degrees[i] * distance_weight
+								total_weight += distance_weight
 						
-						if num_hits > 0:
-							# Average the turn responses for all hits
-							avg_turn = total_turn / num_hits
+						# Emergency stop if multiple rays detect very close obstacles
+						if emergency_count >= 2:
+							emergency_stop = True
+						
+						if total_weight > 0:
+							# Weighted average of turns based on distance
+							avg_turn = total_turn / total_weight
 							
-							# Determine turn direction
-							turn_direction = "tr" if avg_turn > 0 else "tl"
-							turn_degrees = abs(avg_turn)
+							# Handle the corner trap case - where net turn is very small but many obstacles
+							if corner_trap and abs(avg_turn) < 5.0:
+								print("CORNER TRAP DETECTED! Executing escape maneuver")
+								# Choose direction with fewer obstacles
+								if left_hits <= right_hits:
+									turn_direction = "tl"  # Turn left if fewer obstacles on left
+									print("Escaping by turning LEFT")
+								else:
+									turn_direction = "tr"  # Turn right if fewer obstacles on right
+									print("Escaping by turning RIGHT")
+								
+								# Set a large turn angle to escape the corner
+								turn_degrees = 45  # Large enough to escape most corners
+								emergency_stop = True  # Treat like an emergency
+							else:
+								# Normal case - determine turn direction from calculated angle
+								turn_direction = "tr" if avg_turn > 0 else "tl"
+								turn_degrees = abs(avg_turn)
 							
-							# Calculate how many turn commands to send
-							# Each turn command is approximately 5-15 degrees
-							turns_needed = max(1, int(turn_degrees // 15))
+							# Limit maximum turn per iteration to make it smoother
+							# Allow larger turns for emergency or corner trap
+							turn_degrees = min(turn_degrees, 45 if emergency_stop or corner_trap else 15)
 							
-							print(f"Obstacle detected! Turning {turn_degrees:.1f}° {'right' if turn_direction == 'tr' else 'left'}")
+							# Calculate turn commands
+							turns_needed = max(1, int(turn_degrees // 5))
 							
-							# Send a single turn command, but keep moving forward
-							await self.a_agent.send_message("action", turn_direction)
-							await asyncio.sleep(0.2)  # Short delay between commands
+							print(f"Obstacle: Turning {turn_degrees:.1f}° {'right' if turn_direction == 'tr' else 'left'}")
 							
-							# If the turn is significant, might need to slow down
-							if turn_degrees > 30:
-								# Temporarily slow down for sharper turns
+							if emergency_stop or corner_trap:
+								# Emergency/corner maneuver: stop completely and make a decisive turn
+								print("EMERGENCY STOP: Obstacle too close or corner trap")
+								await self.a_agent.send_message("action", "stop")
+								await asyncio.sleep(0.2)
+								
+								# Execute turns in smaller increments but more decisively
+								for _ in range(min(turns_needed+2, 9)):  # More turns for emergency/corner
+									await self.a_agent.send_message("action", turn_direction)
+									await asyncio.sleep(0.15)
+								
+								# Stop turning and carefully resume movement
+								await self.a_agent.send_message("action", "nt")
+								await asyncio.sleep(0.3)
+								await self.a_agent.send_message("action", "mf")
+							
+							# For moderate turns, keep moving while turning
+							elif turn_degrees <= 15:
+								# Send turn command while moving
+								await self.a_agent.send_message("action", turn_direction)
+								await asyncio.sleep(0.15)
+								await self.a_agent.send_message("action", "nt")
+							else:
+								# For sharper turns, slow down briefly
 								await self.a_agent.send_message("action", "stop")
 								await asyncio.sleep(0.1)
 								
-								# Execute additional turns if needed
-								for _ in range(min(turns_needed-1, 2)):  # Limit to at most 3 turns at once
+								# Execute turns in smaller increments
+								for _ in range(min(turns_needed, 3)):
 									await self.a_agent.send_message("action", turn_direction)
-									await asyncio.sleep(0.2)
+									await asyncio.sleep(0.15)
 								
-								# Resume movement
+								# Stop turning and resume movement
+								await self.a_agent.send_message("action", "nt")
+								await asyncio.sleep(0.1)
 								await self.a_agent.send_message("action", "mf")
-							
-							# Stop turning
-							await self.a_agent.send_message("action", "nt")
 					else:
 						# No hits detected, continue moving forward
-						# Occasionally send "nt" to ensure no residual turning
-						if random.random() < 0.1:  # 10% chance each cycle
+						# Occasionally ensure we're moving straight
+						if random.random() < 0.05:  # 5% chance each cycle
 							await self.a_agent.send_message("action", "nt")
 					
-					# Small delay between sensor checks to avoid overwhelming the system
+					# Small delay between sensor checks
 					await asyncio.sleep(0.1)
 					
 				else:
@@ -287,5 +358,5 @@ class Avoid:
 		except asyncio.CancelledError:
 			print("***** TASK Avoid CANCELLED")
 			await self.a_agent.send_message("action", "stop")
-			await self.a_agent.send_message("action", "nt")  # Ensure we're not turning
+			await self.a_agent.send_message("action", "nt")
 			self.state = self.STOPPED
