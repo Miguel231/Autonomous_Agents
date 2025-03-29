@@ -137,7 +137,8 @@ class AAgent:
         self.goals = {
             "DoNothing": Goals_BT.DoNothing(self),
             "ForwardStop": Goals_BT.ForwardStop(self),
-            "Turn": Goals_BT.Turn(self)
+            "Turn": Goals_BT.Turn(self),
+            "RandomRoam": Goals_BT.RandomRoam(self),
         }
 
         # Reference to the possible behaviour trees the agent can execute

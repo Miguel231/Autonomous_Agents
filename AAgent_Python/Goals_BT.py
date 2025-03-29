@@ -64,7 +64,7 @@ class Turn:
 
             print(f"Turning {turn_degrees}° {'left' if turn_direction == 'tl' else 'right'}")
 
-            turns_needed = turn_degrees // 5  # 5 degrees per step
+            turns_needed = turn_degrees // 15  # 5 degrees per step
 
             for _ in range(turns_needed):
                 await self.a_agent.send_message("action", turn_direction)
@@ -94,58 +94,73 @@ class RandomRoam:
         self.turned = 0
         self.num_turns = None  
 
-    async def update(self):
-        if self.state == self.STOPPED:
-            self.state = random.choices([self.TURNING, self.STOP, self.MOVING], weights=(55, 10, 35), k=1)[0]
-            print(f"New State: {self.state}")
-            await asyncio.sleep(2)
+    async def run(self):
+        try:
+            while True:
+                if self.state == self.STOPPED:
+                    self.state = random.choices([self.TURNING, self.STOP, self.MOVING], weights=(55, 10, 35), k=1)[0]
+                    print(f"New State: {self.state}")
+                    await asyncio.sleep(0.5)
 
-        elif self.state == self.MOVING:
-            await self.a_agent.send_message("action", "mf")
-            print("MOVING")
+                elif self.state == self.MOVING:
+                    await self.a_agent.send_message("action", "mf")
+                    print("MOVING")
+                    
+                    # Check for obstacles for a while before changing state
+                    move_time = random.uniform(1.0, 3.0)
+                    start_time = asyncio.get_event_loop().time()
+                    
+                    while asyncio.get_event_loop().time() - start_time < move_time:
+                        if any(ray_hit == 1 for ray_hit in self.rc_sensor.sensor_rays[Sensors.RayCastSensor.HIT]):
+                            print("Obstacle detected! Stopping and turning.")
+                            await self.a_agent.send_message("action", "stop")
+                            self.state = self.TURNING
+                            break
+                        await asyncio.sleep(0.1)
+                    
+                    # If no obstacle was detected, randomly choose next state
+                    if self.state == self.MOVING:
+                        await self.a_agent.send_message("action", "stop")
+                        self.state = random.choices([self.TURNING, self.STOP, self.MOVING], weights=(55, 10, 35), k=1)[0]
+                        print(f"New State: {self.state}")
 
-            if any(ray_hit == 1 for ray_hit in self.rc_sensor.sensor_rays[Sensors.RayCastSensor.HIT]):
-                print("Obstacle detected! Stopping and turning.")
-                await self.a_agent.send_message("action", "stop")
-                self.state = self.TURNING
-            else:
-                self.state = random.choices([self.TURNING, self.STOP, self.MOVING], weights=(55, 10, 35), k=1)[0]
+                elif self.state == self.STOP:
+                    print("STOPPED")
+                    await self.a_agent.send_message("action", "stop")
+                    await asyncio.sleep(random.uniform(1.0, 3.0))  # Random wait time
+                    
+                    self.state = random.choices([self.TURNING, self.STOP, self.MOVING], weights=(55, 10, 35), k=1)[0]
+                    print(f"New State: {self.state}")
 
-            await asyncio.sleep(2)
+                elif self.state == self.TURNING:
+                    # Initialize turning parameters
+                    self.turn_direction = random.choice(["tl", "tr"])
+                    turn_degrees = random.randint(10, 90)
+                    self.num_turns = turn_degrees // 15
 
-        elif self.state == self.STOP:
-            print("STOPPED")
+                    print(f"Turning {turn_degrees}° {'left' if self.turn_direction == 'tl' else 'right'}")
+                    
+                    await self.a_agent.send_message("action", "stop")
+                    await asyncio.sleep(0.2)
+                    
+                    # Perform the turns
+                    for _ in range(self.num_turns):
+                        await self.a_agent.send_message("action", self.turn_direction)
+                        await asyncio.sleep(0.3)
+                    
+                    await self.a_agent.send_message("action", "nt")
+                    print("Turn completed.")
+                    
+                    # Choose next state after turning
+                    self.state = random.choices([self.STOP, self.MOVING], weights=(30, 70), k=1)[0]
+                    print(f"New State: {self.state}")
+                    await asyncio.sleep(0.5)
+
+                else:
+                    print(f"Unknown state: {self.state}")
+                    self.state = self.STOPPED
+        
+        except asyncio.CancelledError:
+            print("***** TASK RandomRoam CANCELLED")
             await self.a_agent.send_message("action", "stop")
-            await asyncio.sleep(2)
-
-            self.state = random.choices([self.TURNING, self.STOP, self.MOVING], weights=(55, 10, 35), k=1)[0]
-            print(f"New State: {self.state}")
-            await asyncio.sleep(0.1)
-
-        elif self.state == self.TURNING:
-            if self.turn_direction is None or self.num_turns is None:
-                await self.a_agent.send_message("action", "stop")
-                await asyncio.sleep(0.1)
-
-                self.turn_direction = random.choice(["tl", "tr"])  
-                turn_degrees = random.randint(10, 360)  
-                self.num_turns = turn_degrees // 5  
-
-                print(f"Turning {turn_degrees}° {'left' if self.turn_direction == 'tl' else 'right'}")
-
-            for _ in range(self.num_turns):
-                await self.a_agent.send_message("action", self.turn_direction)
-                await asyncio.sleep(0.3)
-
-            await self.a_agent.send_message("action", "nt")
-            print("Turn completed.")
-
-            self.turn_direction = None  
-            self.num_turns = None  
-            self.state = random.choices([self.TURNING, self.STOP, self.MOVING], weights=(55, 10, 35), k=1)[0]
-
-            print(f"New State: {self.state}")
-            await asyncio.sleep(0.1)
-
-        else:
-            print(f"Unknown state: {self.state}")
+            self.state = self.STOPPED
