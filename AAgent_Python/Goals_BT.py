@@ -263,7 +263,7 @@ class Avoid:
 					# Count hits
 					total_hit_count = sum(sensor_hits)
 					left_hits = sum(sensor_hits[:len(sensor_hits)//2])
-					right_hits = sum(sensor_hits[len(sensor_hits)//2:])
+					right_hits = sum(sensor_hits[len(sensor_hits)//2+1:])
 					
 					# Calculate turn response
 					total_turn = 0
@@ -288,13 +288,19 @@ class Avoid:
 						continue
 					
 					# Determine response type
-					# Emergency if 2 or more rays are too close or if any ray is too close
-					emergency = emergency_count >= 2 or min_distance < self.emergency_distance * 0.5
-					# Corner trap if 3 or more rays hit and total weight is high
-					corner_trap = total_hit_count >= 3 and total_weight > 2
+					majority = 2/3
+					some = 1-majority
+					# Emergency if some rays hits are too close or if any ray hit is too close
+					emergency = emergency_count >= some * len(sensor_hits) or min_distance < self.emergency_distance * 0.5
+					# Corner trap
+					corner_trap = (
+						total_hit_count / len(sensor_hits) >= majority and # majority of rays hit an object
+						abs(left_hits - right_hits) <= 1 and # left and right hits are similar
+						total_weight >= majority * len(sensor_hits) * 0.6 # majority of rays detect objects mostly (0.6) close
+					)
 					
 					if corner_trap:
-						# print("CORNER TRAP DETECTED! Executing escape maneuver")
+						print("CORNER TRAP DETECTED! Executing escape maneuver")
 						direction = "tl" if left_hits <= right_hits else "tr"
 						await self.a_agent.send_message("action", "stop")
 						await asyncio.sleep(0.1)
