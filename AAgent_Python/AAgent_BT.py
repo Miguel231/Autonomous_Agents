@@ -137,7 +137,9 @@ class AAgent:
         self.goals = {
             "DoNothing": Goals_BT.DoNothing(self),
             "ForwardStop": Goals_BT.ForwardStop(self),
-            "Turn": Goals_BT.Turn(self)
+            "Turn": Goals_BT.Turn(self),
+            "RandomRoam": Goals_BT.RandomRoam(self),
+            "Avoid": Goals_BT.Avoid(self),
         }
 
         # Reference to the possible behaviour trees the agent can execute
@@ -166,7 +168,7 @@ class AAgent:
             param_json = json.dumps(self.AgentParameters)
             print("Sending the initial parameters: " + param_json)
             await self.send_message("initial_params", param_json)
-        except:
+        except aiohttp.ClientError:
             print("Failed connection")
             self.exit_event.set()
 
@@ -273,7 +275,7 @@ class AAgent:
                     print(f"Message: {msg_data}")
             else:
                 print("Received unknown message - Type: " + msg_dict["Type"] + "- Content: " + msg_dict["Content"])
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             print(f"Failed JSON decoding of the received message: {msg_data}")
         except Exception as e:
             print(f"Exception2: {e}")
