@@ -4,6 +4,54 @@ import asyncio
 import Sensors
 from collections import Counter
 
+"""
+--------------------------------------------------------------------------------------------------------------------------------------
+"""
+
+ROTATION_THRESHOLD = 2 # degrees tolerance for stopping
+
+def angle_delta(current, previous):
+	"""
+		Returns the smallest positive arc difference between two angles (0..180).
+		Example:
+			previous=10, current=350 -> 20
+			previous=350, current=10 -> 20
+	"""
+	raw_diff = (current - previous) % 360
+	return 360 - raw_diff if raw_diff > 180 else raw_diff
+
+async def execute_turn(a_agent, i_state, direction, angle):
+	"""Execute a precise turn using orientation tracking"""
+	if angle < 5:
+		await a_agent.send_message("action", direction)
+		await asyncio.sleep(0.1)
+		await a_agent.send_message("action", "nt")
+		return
+
+	# print(f"Turning {angle:.1f}° {'left' if direction == 'tl' else 'right'}")
+	
+	total_rotated = 0 # Total rotation accumulated
+	prev_orientation = i_state.rotation['y']
+	
+	while True:
+		await a_agent.send_message("action", direction)
+		await asyncio.sleep(0.1)
+		
+		current_orientation = i_state.rotation['y']
+		delta = angle_delta(current_orientation, prev_orientation)
+		total_rotated += delta # We simply add how many degrees changed (the "short arc")
+		prev_orientation = current_orientation
+		# print(f"Rotated: {total_rotated:.2f}° / {angle:.1f}°")
+		
+		# If we're close enough , stop turning
+		if total_rotated >= angle - ROTATION_THRESHOLD:
+			await a_agent.send_message("action", "nt")
+			await asyncio.sleep(0)
+			break
+
+"""
+--------------------------------------------------------------------------------------------------------------------------------------
+"""
 
 def calculate_distance(point_a, point_b):
     distance = math.sqrt((point_b['x'] - point_a['x']) ** 2 +
@@ -147,6 +195,9 @@ class Turn:
             await self.a_agent.send_message("action", "nt")
 
 """
+--------------------------------------------------------------------------------------------------------------------------------------
+"""
+
 class RandomRoam:
 	
 	#Moves around randomly, changing direction and deciding when to stop,
@@ -362,3 +413,82 @@ class Avoid:
 			self.state = self.STOPPED
 
 """
+--------------------------------------------------------------------------------------------------------------------------------------
+"""
+def flower_count(i_state):
+    """
+    flowers in the inventory
+    """
+    return sum(
+        item["amount"]
+        for item in i_state.myInventoryList
+        if item["name"] == "AlienFlower"
+    )
+
+
+class get_flower:
+    """
+    Get the flower and check inventory
+    """
+
+    def __init__(self, a_agent, target_pos: dict, tolerance: float = 1.0):
+        self.a_agent = a_agent
+        self.i_state = a_agent.i_state
+        self.target_pos = target_pos
+        self.tolerance = tolerance
+
+    async def run(self):
+        try:
+            #move to the flower
+            await self.a_agent.send_message("action",f"walk_to,{self.target_pos['x']},{self.target_pos['y']},{self.target_pos['z']}")
+
+            #wait
+            while True:
+                await asyncio.sleep(0.2)
+                dist = calculate_distance(self.i_state.position, self.target_pos)
+                if dist <= self.tolerance:
+            
+                    return True  # SUCCESS
+
+        except asyncio.CancelledError:
+            await self.a_agent.send_message("action", "stop")
+            return False
+
+class HarvestCycle:
+
+    def __init__(self, a_agent):
+        self.a_agent = a_agent
+        self.rc_sensor = a_agent.rc_sensor
+        self.i_state   = a_agent.i_state
+
+    async def run(self):
+        try:
+            while True:
+                # --- PHASE 1: GET -------------------------------------------------
+                while flower_count(self.i_state) < 2:
+                    obj_info = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
+                    target = next((o["position"] for o in obj_info if o and o["tag"] == "AlienFlower"), None)
+
+                    if target:
+                        ok = await get_flower(self.a_agent, target).run()
+                        if not ok:
+                            break  
+                    else:
+                        await RandomRoam(self.a_agent).run()
+
+                # --- PHASE 2: FULL INVENTARY ---------------------------------------
+                if flower_count(self.i_state) >= 2:
+                    #GO TO BASE
+                    await self.a_agent.send_message("action", "teleport_to,Base")
+                    
+                    while not self.a_agent.at_base():
+                        await asyncio.sleep(0.2)
+
+                    
+                    for item in self.i_state.myInventoryList:
+                        if item["name"] == "AlienFlower":
+                            item["amount"] = 0
+                    await self.a_agent.send_message("action", "leave,AlienFlower, 2")
+
+        except asyncio.CancelledError:
+            await self.a_agent.send_message("action","stop")

@@ -158,8 +158,9 @@ class AAgent:
             "DoNothing": Goals_BT.DoNothing(self),
             "ForwardDist": Goals_BT.ForwardDist(self, -1, 5, 10),
             "Turn": Goals_BT.Turn(self),
-            #"RandomRoam": Goals_BT.RandomRoam(self),
-            #"Avoid": Goals_BT.Avoid(self),
+            "RandomRoam": Goals_BT.RandomRoam(self),
+            "Avoid": Goals_BT.Avoid(self),
+            "HarvestCycle": Goals_BT.HarvestCycle(self)
         }
 
         # Reference to the possible behaviour trees the agent can execute
