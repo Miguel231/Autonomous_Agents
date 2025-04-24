@@ -1,0 +1,23 @@
+{
+  "Server": {
+    "host": "127.0.0.1",
+    "port": 4649
+  },
+  "AgentParameters": {
+    "type": "AAgentCritterMantaRay",
+    "name": "Critter",
+    "interactable": true,
+    "spawn_area": "HarvestZone",
+    "spawn_point": -1,
+    "spawn_distance": 2,
+    "debug_mode": false,
+    "manual_control": false,
+    "initial_task": "bt:BTRoam",
+    "ray_perception_sensor_param": [2,45,0,5]
+  },
+  "Misc": {
+    "python_gui_monitor": false
+  }
+}
+
+
