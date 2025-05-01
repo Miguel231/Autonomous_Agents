@@ -419,40 +419,134 @@ def flower_count(i_state):
     """
     flowers in the inventory
     """
-    return sum(
-        item["amount"]
-        for item in i_state.myInventoryList
-        if item["name"] == "AlienFlower"
+    return next(
+        (item['amount'] for item in i_state.myInventoryList if item['name'] == 'AlienFlower'),
+        0 # If not found
     )
 
 
-class get_flower:
-    """
-    Get the flower and check inventory
-    """
+# class GetFlower:
+#     """
+#     Get the flower and check inventory
+#     """
 
-    def __init__(self, a_agent, target_pos: dict, tolerance: float = 1.0):
-        self.a_agent = a_agent
-        self.i_state = a_agent.i_state
-        self.target_pos = target_pos
-        self.tolerance = tolerance
+#     def __init__(self, a_agent, target_pos: dict, tolerance: float = 1.0):
+#         self.a_agent = a_agent
+#         self.i_state = a_agent.i_state
+#         self.target_pos = target_pos
+#         self.tolerance = tolerance
 
-    async def run(self):
-        try:
-            #move to the flower
-            await self.a_agent.send_message("action",f"walk_to,{self.target_pos['x']},{self.target_pos['y']},{self.target_pos['z']}")
+#     async def run(self):
+#         try:
+#             #move to the flower
+#             await self.a_agent.send_message("action",f"walk_to,{self.target_pos['x']},{self.target_pos['y']},{self.target_pos['z']}")
 
-            #wait
-            while True:
-                await asyncio.sleep(0.2)
-                dist = calculate_distance(self.i_state.position, self.target_pos)
-                if dist <= self.tolerance:
+#             #wait
+#             while True:
+#                 await asyncio.sleep(0.2)
+#                 dist = calculate_distance(self.i_state.position, self.target_pos)
+#                 if dist <= self.tolerance:
             
-                    return True  # SUCCESS
+#                     return True  # SUCCESS
 
-        except asyncio.CancelledError:
-            await self.a_agent.send_message("action", "stop")
-            return False
+#         except asyncio.CancelledError:
+#             await self.a_agent.send_message("action", "stop")
+#             return False
+
+
+class GetFlower:
+	"""
+	Orientate to the flower and move forward to it
+	"""
+	def __init__(self, a_agent):
+		self.a_agent = a_agent
+		self.i_state = a_agent.i_state
+		self.side = 0
+		self.turn_map = {
+			-1: "tl",
+			0: "nt",
+			1: "tr"
+		}
+
+		# Calculate center-outward ray indices
+		num_rays = self.a_agent.rc_sensor.num_rays
+		center = num_rays // 2
+		self.ray_check_order = [center]  # Start with center
+		for offset in range(1, center + 1):
+			left = center - offset
+			right = center + offset
+			if left >= 0:
+				self.ray_check_order.append(left)
+			if right < num_rays:
+				self.ray_check_order.append(right)
+		print(f"Ray check order: {self.ray_check_order}")
+
+	async def run(self):
+		try:
+			while True:
+				# Check what side is the flower
+				for ray_index in self.ray_check_order:
+					ray = tuple(zip(*self.a_agent.rc_sensor.sensor_rays))[ray_index]
+					if ray[Sensors.RayCastSensor.HIT] and \
+						ray[Sensors.RayCastSensor.OBJECT_INFO]['tag'] == 'AlienFlower':
+						if ray[Sensors.RayCastSensor.ANGLE] == 0: # center
+							self.side = 0
+						elif ray[Sensors.RayCastSensor.ANGLE] < 0: # left
+							self.side = -1
+						else: # right
+							self.side = 1
+						break
+				before_flower_count = flower_count(self.i_state)
+				# Turn to that side until flower is in the center ray
+				await self.a_agent.send_message("action", self.turn_map[self.side])
+				# Move forward until inventory increases by 1 (this can mf while turning)
+				await self.a_agent.send_message("action", "mf")
+				await asyncio.sleep(0.1)
+				# Check if flower was collected
+				current_flower_count = flower_count(self.i_state)
+				# print(f"Flower count: {current_flower_count}, Before: {before_flower_count}")
+				if current_flower_count > before_flower_count:
+					print("Flower collected!")
+					await self.a_agent.send_message("action", "stop")
+					return
+				await asyncio.sleep(0.5)
+
+		except asyncio.CancelledError:
+			print("***** TASK GetFlower CANCELLED")
+			await self.a_agent.send_message("action", "stop")
+			await self.a_agent.send_message("action", "nt")
+
+
+class ReturnAndUnload:
+	"""
+	Return to base
+	"""
+	def __init__(self, a_agent):
+		self.a_agent = a_agent
+		self.rc_sensor = a_agent.rc_sensor
+		self.i_state = a_agent.i_state
+
+	async def run(self):
+		try:
+			while True:
+				# Check if we are at base
+				if self.i_state.currentNamedLoc == "Base":
+					print("At base")
+					await self.a_agent.send_message("action", "stop")
+					await self.a_agent.send_message("action", "nt")
+					await asyncio.sleep(0.2)
+					await self.a_agent.send_message("action", "leave,AlienFlower,2")
+					print("Unloaded flowers")
+					return True
+				else:
+					print("Returning to base")
+					# await self.a_agent.send_message("action", "walk_to,Base")
+					await self.a_agent.send_message("action", "teleport_to,Base")
+					await asyncio.sleep(0.5)
+		except asyncio.CancelledError:
+			await self.a_agent.send_message("action", "stop")
+			await self.a_agent.send_message("action", "nt")
+
 
 class HarvestCycle:
 
@@ -470,7 +564,7 @@ class HarvestCycle:
                     target = next((o["position"] for o in obj_info if o and o["tag"] == "AlienFlower"), None)
 
                     if target:
-                        ok = await get_flower(self.a_agent, target).run()
+                        ok = await GetFlower(self.a_agent, target).run()
                         if not ok:
                             break  
                     else:

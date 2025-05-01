@@ -118,8 +118,116 @@ class BN_DetectFlower(pt.behaviour.Behaviour):
         pass
 
 
+class BN_Roam(pt.behaviour.Behaviour):
+	def __init__(self, aagent):
+		self.my_goal = None
+		super(BN_Roam, self).__init__("BN_Roam")
+		self.logger.debug("Initializing BN_Roam")
+		self.my_agent = aagent
+
+	def initialise(self):
+		self.logger.debug("Create Goals_BT.Avoid task")
+		self.my_goal = asyncio.create_task(Goals_BT.Avoid(self.my_agent).run())
+
+	def update(self):
+		if not self.my_goal.done():
+			return pt.common.Status.RUNNING
+		else:
+			if self.my_goal.result():
+				self.logger.debug("BN_Roam completed with SUCCESS")
+				# print("BN_Roam completed with SUCCESS")
+				return pt.common.Status.SUCCESS
+			else:
+				self.logger.debug("BN_Roam completed with FAILURE")
+				# print("BN_Roam completed with FAILURE")
+				return pt.common.Status.FAILURE
+
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate BN_Roam")
+		self.my_goal.cancel()
 
 
+class BN_MoveToFlower(pt.behaviour.Behaviour):
+	def __init__(self, aagent):
+		self.my_goal = None
+		super(BN_MoveToFlower, self).__init__("BN_MoveToFlower")
+		self.logger.debug("Initializing BN_MoveToFlower")
+		self.my_agent = aagent
+
+	def initialise(self):
+		self.logger.debug("Create Goals_BT.GetFlower task")
+		self.my_goal = asyncio.create_task(Goals_BT.GetFlower(self.my_agent).run())
+
+	def update(self):
+		if not self.my_goal.done():
+			return pt.common.Status.RUNNING
+		else:
+			if self.my_goal.result():
+				self.logger.debug("BN_MoveToFlower completed with SUCCESS")
+				# print("BN_MoveToFlower completed with SUCCESS")
+				return pt.common.Status.SUCCESS
+			else:
+				self.logger.debug("BN_MoveToFlower completed with FAILURE")
+				# print("BN_MoveToFlower completed with FAILURE")
+				return pt.common.Status.FAILURE
+
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate BN_MoveToFlower")
+		self.my_goal.cancel()
+
+
+class BN_Full(pt.behaviour.Behaviour):
+	def __init__(self, aagent):
+		super(BN_Full, self).__init__("BN_Full")
+		self.logger.debug("Initializing BN_Full")
+		self.my_agent = aagent
+
+	def initialise(self):
+		pass
+
+	def update(self):
+		flower_count = Goals_BT.flower_count(self.my_agent.i_state)
+		if flower_count >= 2:
+			return pt.common.Status.SUCCESS
+		return pt.common.Status.FAILURE
+
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate BN_Full")
+
+
+class BN_ReturnAndUnload(pt.behaviour.Behaviour):
+	def __init__(self, aagent):
+		self.my_goal = None
+		super(BN_ReturnAndUnload, self).__init__("BN_ReturnBase")
+		self.logger.debug("Initializing BN_ReturnBase")
+		self.my_agent = aagent
+
+	def initialise(self):
+		self.logger.debug("Create Goals_BT.ReturnBase task")
+		self.my_goal = asyncio.create_task(Goals_BT.ReturnAndUnload(self.my_agent).run())
+
+	def update(self):
+		if not self.my_goal.done():
+			return pt.common.Status.RUNNING
+		else:
+			if self.my_goal.result():
+				self.logger.debug("BN_ReturnBase completed with SUCCESS")
+				# print("BN_ReturnBase completed with SUCCESS")
+				return pt.common.Status.SUCCESS
+			else:
+				self.logger.debug("BN_ReturnBase completed with FAILURE")
+				# print("BN_ReturnBase completed with FAILURE")
+				return pt.common.Status.FAILURE
+
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate BN_ReturnBase")
+		self.my_goal.cancel()
+
+"""
 class BTRoam:
     def __init__(self, aagent):
         # py_trees.logging.level = py_trees.logging.Level.DEBUG
@@ -161,3 +269,39 @@ class BTRoam:
     async def tick(self):
         self.behaviour_tree.tick()
         await asyncio.sleep(0)
+"""
+
+class BTRoam:
+	def __init__(self, aagent):
+		# py_trees.logging.level = py_trees.logging.Level.DEBUG
+
+		self.aagent = aagent
+		
+		unloading = pt.composites.Sequence(name="Unload Sequence", memory=False)
+		unloading.add_children([BN_Full(aagent), BN_ReturnAndUnload(aagent)])
+
+		get_flower = pt.composites.Sequence(name="Get Flower", memory=False)
+		get_flower.add_children([BN_DetectFlower(aagent), BN_MoveToFlower(aagent)])
+
+		roaming = pt.composites.Selector(name="Roaming", memory=False)
+		roaming.add_children([get_flower, BN_Roam(aagent)])
+
+		self.root = pt.composites.Selector(name="Selector", memory=False)
+		self.root.add_children([unloading, roaming])
+
+		self.behaviour_tree = pt.trees.BehaviourTree(self.root)
+
+	# Function to set invalid state for a node and its children recursively
+	def set_invalid_state(self, node):
+		node.status = pt.common.Status.INVALID
+		for child in node.children:
+			self.set_invalid_state(child)
+
+	def stop_behaviour_tree(self):
+		# Setting all the nodes to invalid, we force the associated asyncio tasks to be cancelled
+		self.set_invalid_state(self.root)
+		print("Stopping behaviour tree")
+
+	async def tick(self):
+		self.behaviour_tree.tick()
+		await asyncio.sleep(0)
