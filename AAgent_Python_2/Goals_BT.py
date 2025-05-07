@@ -458,6 +458,7 @@ class GetFlower:
 	"""
 	Orientate to the flower and move forward to it
 	"""
+
 	def __init__(self, a_agent):
 		self.a_agent = a_agent
 		self.i_state = a_agent.i_state
@@ -513,6 +514,118 @@ class GetFlower:
 
 		except asyncio.CancelledError:
 			print("***** TASK GetFlower CANCELLED")
+			await self.a_agent.send_message("action", "stop")
+			await self.a_agent.send_message("action", "nt")
+
+
+bitten_astronaut=False
+
+
+def is_astronaut_bitten():
+	global bitten_astronaut	
+	return bitten_astronaut
+
+class GetAstronaut: 
+	"""
+	Orientate to the astronaut and move forward to it
+	"""
+	def __init__(self, a_agent):
+		self.a_agent = a_agent
+		#self.tag_object=tag_object
+		self.i_state = a_agent.i_state
+		self.side = 0
+		self.turn_map = {
+			-1: "tl",
+			0: "nt",
+			1: "tr"
+		}
+
+		# Calculate center-outward ray indices
+		num_rays = self.a_agent.rc_sensor.num_rays
+		center = num_rays // 2
+		self.ray_check_order = [center]  # Start with center
+		for offset in range(1, center + 1):
+			left = center - offset
+			right = center + offset
+			if left >= 0:
+				self.ray_check_order.append(left)
+			if right < num_rays:
+				self.ray_check_order.append(right)
+		print(f"Ray check order: {self.ray_check_order}")
+
+	async def run(self):
+		try:
+			while True:
+				# Search for target
+				astronautDetected=False
+				astronautBitten=False
+				for ray_index in self.ray_check_order:
+					ray = tuple(zip(*self.a_agent.rc_sensor.sensor_rays))[ray_index]
+					if ray[Sensors.RayCastSensor.HIT] and \
+						ray[Sensors.RayCastSensor.OBJECT_INFO]['tag'] == "Astronaut":
+
+						if ray[Sensors.RayCastSensor.ANGLE] == 0: # center
+							self.side = 0
+						elif ray[Sensors.RayCastSensor.ANGLE] < 0: # left
+							self.side = -1
+						else: # right
+							self.side = 1
+						
+						astronautDetected=True
+						print(ray[Sensors.RayCastSensor.DISTANCE])
+						if ray[Sensors.RayCastSensor.DISTANCE]<1:
+							print(ray[Sensors.RayCastSensor.DISTANCE])
+							astronautBitten=True
+						else:
+							astronautBitten=False
+
+						break
+				if astronautDetected:
+					await self.a_agent.send_message("action", self.turn_map[self.side])
+					await self.a_agent.send_message("action", "mf")
+
+				await asyncio.sleep(0.5)
+
+				if astronautBitten:
+					print("Astronaut bitten!") 
+					global bitten_astronaut
+					if(not bitten_astronaut): bitten_astronaut=True
+					return True
+				
+		except asyncio.CancelledError:
+			print(f"***** TASK GetAstronaut CANCELLED")
+			await self.a_agent.send_message("action", "stop")
+			await self.a_agent.send_message("action", "nt")
+
+
+class MoveAway:
+	"""
+    Move the critter away from the astronaut after biting.
+    """
+	def __init__(self, a_agent):
+		self.a_agent=a_agent
+		self.i_state = a_agent.i_state
+
+	async def run(self):
+		try:
+			await self.a_agent.send_message("action", "stop") # All critters wait 
+			await asyncio.sleep(0.5)
+			for index,ray in enumerate(zip(*self.a_agent.rc_sensor.sensor_rays)):
+				if ray[Sensors.RayCastSensor.HIT] and \
+				ray[Sensors.RayCastSensor.OBJECT_INFO]['tag'] == 'Astronaut':
+					await execute_turn(self.a_agent, self.i_state, "tl", 180) # Only the critters that has detect the astronaut turn around
+					await self.a_agent.send_message("action", "mf")
+			
+			await asyncio.sleep(4) 
+
+			print("MoveAway completed")
+			global bitten_astronaut
+			if(bitten_astronaut): bitten_astronaut=False
+
+			return True
+		
+		except asyncio.CancelledError:
+			print("***** TASK MoveAway CANCELLED")
 			await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 

@@ -165,7 +165,8 @@ class AAgent:
 
         # Reference to the possible behaviour trees the agent can execute
         self.bts = {
-            "BTRoam": BTRoam.BTRoam(self)
+            "AstronautBT": BTRoam.AstronautBT(self),
+            "CritterBT": BTRoam.CritterBT(self)
         }
 
         # Active goal
