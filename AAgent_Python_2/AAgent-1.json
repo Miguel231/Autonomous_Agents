@@ -12,7 +12,7 @@
     "spawn_distance": 2,
     "debug_mode": false,
     "manual_control": false,
-    "initial_task": "",
+    "initial_task": "bt:AstronautBT",
     "ray_perception_sensor_param": [2,45,0,5]
   },
   "Misc": {

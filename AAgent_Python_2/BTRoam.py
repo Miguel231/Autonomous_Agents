@@ -91,7 +91,7 @@ class BN_TurnRandom(pt.behaviour.Behaviour):
         self.logger.debug("Terminate BN_TurnRandom")
         self.my_goal.cancel()
 
-
+"""
 class BN_DetectFlower(pt.behaviour.Behaviour):
     def __init__(self, aagent):
         self.my_goal = None
@@ -112,6 +112,29 @@ class BN_DetectFlower(pt.behaviour.Behaviour):
                     return pt.common.Status.SUCCESS
         # print("No flower...")
         # print("BN_DetectFlower completed with FAILURE")
+        return pt.common.Status.FAILURE
+
+    def terminate(self, new_status: common.Status):
+        pass
+"""
+
+
+class BN_DetectObject(pt.behaviour.Behaviour):
+    def __init__(self, aagent, tag_object):
+        self.my_goal = None
+        super(BN_DetectObject, self).__init__("BN_Detect{tag_object}")
+        self.my_agent = aagent
+        self.tag_object=tag_object
+
+    def initialise(self):
+        pass
+
+    def update(self):
+        sensor_obj_info = self.my_agent.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
+        for index, value in enumerate(sensor_obj_info):
+            if value:  # there is a hit with an object
+                if value["tag"] ==self.tag_object:  
+                    return pt.common.Status.SUCCESS
         return pt.common.Status.FAILURE
 
     def terminate(self, new_status: common.Status):
@@ -176,6 +199,86 @@ class BN_MoveToFlower(pt.behaviour.Behaviour):
 		# Finishing the behaviour, therefore we have to stop the associated task
 		self.logger.debug("Terminate BN_MoveToFlower")
 		self.my_goal.cancel()
+
+
+
+class BN_MoveToAstronaut(pt.behaviour.Behaviour):
+	def __init__(self, aagent):
+		self.my_goal = None
+		super(BN_MoveToAstronaut, self).__init__("BN_MoveToAstronaut")
+		self.logger.debug("Initializing BN_MoveToAstronaut")
+		self.my_agent = aagent
+		#self.tag_object=tag_object
+
+	def initialise(self):
+		self.logger.debug("Create Goals_BT.GetAstronaut task")
+		self.my_goal = asyncio.create_task(Goals_BT.GetAstronaut(self.my_agent).run())
+
+	def update(self):
+		if not self.my_goal.done():
+			return pt.common.Status.RUNNING
+		else:
+			if self.my_goal.result():
+				self.logger.debug("BN_MoveToAstronaut completed with SUCCESS")
+				return pt.common.Status.SUCCESS
+			else:
+				self.logger.debug("BN_MoveToAstronaut completed with FAILURE")
+				return pt.common.Status.FAILURE
+
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate BN_MoveToAstronaut")
+		self.my_goal.cancel()
+
+
+class BN_RetreatAfterBite(pt.behaviour.Behaviour):
+	def __init__(self, aagent):
+		self.my_goal = None
+		super(BN_RetreatAfterBite, self).__init__("BN_RetreatAfterBite")
+		self.logger.debug("Initializing BN_MoveAway")
+		self.my_agent = aagent
+		#self.tag_object=tag_object
+
+	def initialise(self):
+		self.logger.debug("Create Goals_BT.MoveAway task")
+		self.my_goal = asyncio.create_task(Goals_BT.MoveAway(self.my_agent).run())
+
+	def update(self):
+		if not self.my_goal.done():
+			return pt.common.Status.RUNNING
+		else:
+			if self.my_goal.result():
+				self.logger.debug("BN_RetreatAfterBite completed with SUCCESS")
+				# print("BN_MoveToFlower completed with SUCCESS")
+				return pt.common.Status.SUCCESS
+			else:
+				self.logger.debug("BN_RetreatAfterBite completed with FAILURE")
+				# print("BN_MoveToFlower completed with FAILURE")
+				return pt.common.Status.FAILURE
+
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate BN_MoveToFlower")
+		self.my_goal.cancel()
+
+
+class BN_AstronautBitten(pt.behaviour.Behaviour):
+	def __init__(self, aagent):
+		super(BN_AstronautBitten, self).__init__("BN_AtronautBitten")
+		self.logger.debug("Initializing BN_AtronautBitten")
+		self.my_agent = aagent
+
+	def initialise(self):
+		pass
+
+	def update(self):
+		if Goals_BT.is_astronaut_bitten():
+			return pt.common.Status.SUCCESS
+		return pt.common.Status.FAILURE
+
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate BN_AtronautBitten")
 
 
 class BN_Full(pt.behaviour.Behaviour):
@@ -271,7 +374,7 @@ class BTRoam:
         await asyncio.sleep(0)
 """
 
-class BTRoam:
+class AstronautBT:
 	def __init__(self, aagent):
 		# py_trees.logging.level = py_trees.logging.Level.DEBUG
 
@@ -281,13 +384,46 @@ class BTRoam:
 		unloading.add_children([BN_Full(aagent), BN_ReturnAndUnload(aagent)])
 
 		get_flower = pt.composites.Sequence(name="Get Flower", memory=False)
-		get_flower.add_children([BN_DetectFlower(aagent), BN_MoveToFlower(aagent)])
+		get_flower.add_children([BN_DetectObject(aagent, "AlienFlower"), BN_MoveToFlower(aagent)])
 
 		roaming = pt.composites.Selector(name="Roaming", memory=False)
 		roaming.add_children([get_flower, BN_Roam(aagent)])
 
 		self.root = pt.composites.Selector(name="Selector", memory=False)
 		self.root.add_children([unloading, roaming])
+
+		self.behaviour_tree = pt.trees.BehaviourTree(self.root)
+
+	# Function to set invalid state for a node and its children recursively
+	def set_invalid_state(self, node):
+		node.status = pt.common.Status.INVALID
+		for child in node.children:
+			self.set_invalid_state(child)
+
+	def stop_behaviour_tree(self):
+		# Setting all the nodes to invalid, we force the associated asyncio tasks to be cancelled
+		self.set_invalid_state(self.root)
+		print("Stopping behaviour tree")
+
+	async def tick(self):
+		self.behaviour_tree.tick()
+		await asyncio.sleep(0)
+
+
+class CritterBT:
+	def __init__(self, aagent):
+
+		self.aagent = aagent
+		
+		move_away = pt.composites.Sequence(name="Move Away Sequence", memory=False)
+		move_away.add_children([BN_AstronautBitten(aagent), BN_RetreatAfterBite(aagent)])
+
+		get_astronaut = pt.composites.Sequence(name="Get Astronaut", memory=False)
+		get_astronaut.add_children([BN_DetectObject(aagent, "Astronaut"), BN_MoveToAstronaut(aagent)])
+
+		self.root = pt.composites.Selector(name="Selector", memory=False)
+		self.root.add_children([move_away, get_astronaut, BN_Roam(aagent)])
+
 
 		self.behaviour_tree = pt.trees.BehaviourTree(self.root)
 
