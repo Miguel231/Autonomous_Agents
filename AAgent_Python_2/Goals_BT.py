@@ -408,7 +408,7 @@ class Avoid:
 		
 		except asyncio.CancelledError:
 			print("***** TASK Avoid CANCELLED")
-			await self.a_agent.send_message("action", "stop")
+			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 			self.state = self.STOPPED
 
@@ -514,7 +514,7 @@ class GetFlower:
 
 		except asyncio.CancelledError:
 			print("***** TASK GetFlower CANCELLED")
-			await self.a_agent.send_message("action", "stop")
+			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -594,7 +594,7 @@ class GetAstronaut:
 				
 		except asyncio.CancelledError:
 			print(f"***** TASK GetAstronaut CANCELLED")
-			await self.a_agent.send_message("action", "stop")
+			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -626,7 +626,7 @@ class MoveAway:
 		
 		except asyncio.CancelledError:
 			print("***** TASK MoveAway CANCELLED")
-			await self.a_agent.send_message("action", "stop")
+			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -657,7 +657,7 @@ class ReturnAndUnload:
 					await self.a_agent.send_message("action", "teleport_to,Base")
 					await asyncio.sleep(0.5)
 		except asyncio.CancelledError:
-			await self.a_agent.send_message("action", "stop")
+			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
 

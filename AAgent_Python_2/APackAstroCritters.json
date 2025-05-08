@@ -2,11 +2,11 @@
     "packs": [
         {
             "agent_config_file": "AAgent-1.json",
-            "num_agents": 1
+            "num_agents": 10
         },
         {
             "agent_config_file": "AAgent-2.json",
-            "num_agents": 5
+            "num_agents": 10
         }
     ]
 }
