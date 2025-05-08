@@ -699,3 +699,194 @@ class HarvestCycle:
 
         except asyncio.CancelledError:
             await self.a_agent.send_message("action","stop")
+
+
+# # !!!! I am here
+# """PART 3: Scenario Collect-and-run"""
+# class EscapeFromCritter:
+#     """
+#     Flee from any detected 'Critter' object without teleporting.
+
+#     Emergency plan
+#     --------------
+#     • Stop → 180° turn to the safer side
+#     • Dash forward for `panic_dash_time` seconds
+#     • Resume ordinary flee logic
+#     """
+
+#     safe_distance      = 5.0     # m – ‘far enough’
+#     emergency_distance = 1.5     # m – triggers hard-panic dash
+#     panic_dash_time    = 1.5     # s – straight run after the 180°
+#     max_turn_per_tick  = 60      # deg – cap normal steering
+#     grace_period       = 2.0     # s – no critters seen → SUCCESS
+#     tick               = 0.1     # s – main loop sleep
+
+#     def __init__(self, a_agent):
+#         self.a_agent   = a_agent
+#         self.rc_sensor = a_agent.rc_sensor
+#         self.i_state   = a_agent.i_state
+
+#     async def run(self):
+#         last_seen_time = asyncio.get_event_loop().time()
+
+#         try:
+#             while True:
+#                 # ---- 1. read sensor rays ----------------------------------
+#                 hits      = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.HIT]
+#                 info      = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
+#                 angles    = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.ANGLE]
+#                 distances = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.DISTANCE]
+
+#                 danger_x = danger_z = 0.0
+#                 min_dist = float("inf")
+
+#                 for hit, inf, ang, dist in zip(hits, info, angles, distances):
+#                     if hit and inf and inf["tag"] == "CritterMantaRay":
+#                         weight   = 1.0 / (dist + 1e-3) ** 2
+#                         rad      = math.radians(ang)
+#                         danger_x += math.sin(rad) * weight
+#                         danger_z += math.cos(rad) * weight
+#                         min_dist  = min(min_dist, dist)
+
+#                 sees_critter = min_dist < float("inf")
+#                 if sees_critter:
+#                     last_seen_time = asyncio.get_event_loop().time()
+
+#                 # ---- 2. clear? --------------------------------------------
+#                 if asyncio.get_event_loop().time() - last_seen_time >= self.grace_period:
+#                     await self.a_agent.send_message("action", "stop")
+#                     await self.a_agent.send_message("action", "nt")
+#                     print("[Escape] Safe: no critters in view.")
+#                     return True
+
+#                 if not sees_critter:          # nothing new this tick
+#                     await asyncio.sleep(self.tick)
+#                     continue
+
+#                 # ---- 3. compute flee steering -----------------------------
+#                 flee_ang = (math.degrees(math.atan2(-danger_x, -danger_z))) % 360
+#                 cur_ang  = self.i_state.rotation["y"]
+#                 turn_deg = angle_delta(flee_ang, cur_ang)
+#                 turn_dir = "tl" if ((flee_ang - cur_ang) % 360) > 180 else "tr"
+#                 turn_deg = min(turn_deg, self.max_turn_per_tick)
+
+#                 # ---- 4. emergency dash ------------------------------------
+#                 if min_dist <= self.emergency_distance:
+#                     # choose 180° direction biased to side with fewer critters
+#                     left_hits  = sum(hits[: len(hits) // 2])
+#                     right_hits = sum(hits[len(hits) // 2 + 1 :])
+#                     turn_dir   = "tr" if left_hits >= right_hits else "tl"
+#                     print(f"[Escape] PANIC! Closest critter {min_dist:.2f} m – 180° {turn_dir}")
+#                     await self.a_agent.send_message("action", "stop")
+#                     await asyncio.sleep(0.05)
+#                     await execute_turn(self.a_agent, self.i_state, turn_dir, 180)
+#                     await self.a_agent.send_message("action", "mf")
+#                     await asyncio.sleep(self.panic_dash_time)
+#                     await self.a_agent.send_message("action", "ntm")
+#                     continue  # go back to sensor loop
+
+#                 # ---- 5. normal flee steering ------------------------------
+#                 await self.a_agent.send_message("action", "stop")
+#                 await asyncio.sleep(0.05)
+#                 await execute_turn(self.a_agent, self.i_state, turn_dir, turn_deg)
+#                 await self.a_agent.send_message("action", "mf")
+#                 await asyncio.sleep(self.tick)
+
+#         except asyncio.CancelledError:
+#             print("***** TASK EscapeFromCritter CANCELLED")
+#             await self.a_agent.send_message("action", "stop")
+#             await self.a_agent.send_message("action", "nt")
+#             return False
+
+
+import math
+import random
+import asyncio
+import Sensors
+
+class EscapeFromCritter:
+    """
+    One–shot reflex escape:
+        • Decide side   (left, right, or random if dead-ahead)
+        • Snap-turn away (panic_turn_deg)
+        • Dash forward  (panic_dash_time)
+    Then return SUCCESS so the BT can fall back to its normal selector.
+    """
+
+    # --- Tunables ----------------------------------------------------------
+    side_threshold     = 5.0     # deg – consider |angle| ≤ threshold as “front”
+    panic_turn_deg     = 90      # deg – how much to turn away
+    panic_dash_time    = 2.0     # s   – how long to sprint after turning
+    tick               = 0.05    # s   – inner-loop sleep while searching
+
+    def __init__(self, a_agent):
+        self.a_agent   = a_agent
+        self.rc_sensor = a_agent.rc_sensor
+        self.i_state   = a_agent.i_state
+
+    # ----------------------------------------------------------------------
+    async def run(self):
+        try:
+            while True:
+                # 1) Scan rays for critters --------------------------------
+                hits      = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.HIT]
+                info      = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
+                angles    = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.ANGLE]
+                distances = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.DISTANCE]
+
+                critter_rays = [
+                    (ang, dist) for hit, inf, ang, dist
+                    in zip(hits, info, angles, distances)
+                    if hit and inf and inf["tag"] == "CritterMantaRay"
+                ]
+
+                if not critter_rays:
+                    # No critter in sight → SUCCESS, escape complete
+                    return True
+
+                # 2) Pick the “most dangerous” ray (closest) ---------------
+                nearest_ang, nearest_dist = min(critter_rays, key=lambda ad: ad[1])
+
+                # 3) Decide escape side ------------------------------------
+                if abs(nearest_ang) <= self.side_threshold:
+                    # Dead ahead → pick the safer side
+                    left_hits  = sum(1 for ang, _ in critter_rays if ang <  -self.side_threshold)
+                    right_hits = sum(1 for ang, _ in critter_rays if ang >  self.side_threshold)
+
+                    if left_hits == right_hits:           # tie → who’s farther?
+                        avg_left  = sum(dist for ang, dist in critter_rays
+                                        if ang <  -self.side_threshold) / (left_hits  or 1)
+                        avg_right = sum(dist for ang, dist in critter_rays
+                                        if ang >   self.side_threshold) / (right_hits or 1)
+                        turn_dir = "tr" if avg_left >= avg_right else "tl"
+                    else:
+                        turn_dir = "tr" if left_hits >= right_hits else "tl"
+                else:
+                    # Simple opposite-side reflex
+                    turn_dir = "tr" if nearest_ang < 0 else "tl"
+
+                # 4) Snap-turn & dash --------------------------------------
+                await self.a_agent.send_message("action", "stop")
+                await asyncio.sleep(0.02)
+                await execute_turn(self.a_agent, self.i_state,
+                                   turn_dir, self.panic_turn_deg)
+                await self.a_agent.send_message("action", "mf")
+                await asyncio.sleep(self.panic_dash_time)
+                await self.a_agent.send_message("action", "ntm")
+
+                # 5) Escape done – return SUCCESS --------------------------
+                return True
+
+                # If you’d rather keep looking for more critters after the
+                # dash, remove the ‘return True’ above and loop again.
+
+                await asyncio.sleep(self.tick)
+
+        except asyncio.CancelledError:
+            print("***** TASK EscapeFromCritter CANCELLED")
+            await self.a_agent.send_message("action", "stop")
+            await self.a_agent.send_message("action", "nt")
+            return False
+
+
+
