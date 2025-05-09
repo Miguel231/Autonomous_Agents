@@ -726,7 +726,7 @@ class EscapeFromCritter:
         prev_yaw  = self.i_state.rotation["y"]
 
         # make sure we’re already driving forward
-        await self.agent.send_message("action", "mf")
+        # await self.agent.send_message("action", "mf")
 
         while total_rot < degrees:
             await self.agent.send_message("action", direction)
