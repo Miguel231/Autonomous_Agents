@@ -6,7 +6,7 @@
   "AgentParameters": {
     "type": "AAgentAstronaut",
     "name": "Astronaut",
-    "interactable": false,
+    "interactable": true,
     "spawn_area": "",
     "spawn_point": 0,
     "spawn_distance": 2,

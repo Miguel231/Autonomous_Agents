@@ -551,8 +551,11 @@ class CritterBT:
 		get_astronaut = pt.composites.Sequence(name="Get Astronaut", memory=False)
 		get_astronaut.add_children([BN_DetectObject(aagent, "Astronaut"), BN_MoveToAstronaut(aagent)])
 
+		roaming = pt.composites.Selector(name="Roaming", memory=False)
+		roaming.add_children([get_astronaut, BN_Roam(aagent)])
+
 		self.root = pt.composites.Selector(name="Selector", memory=False)
-		self.root.add_children([move_away, get_astronaut, BN_Roam(aagent)])
+		self.root.add_children([move_away, roaming])
 
 
 		self.behaviour_tree = pt.trees.BehaviourTree(self.root)
