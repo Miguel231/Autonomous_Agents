@@ -131,7 +131,7 @@ class ForwardDist:
                     print("Unknown state: " + str(self.state))
                     return False
         except asyncio.CancelledError:
-            print("***** TASK Forward CANCELLED")
+            # print("***** TASK Forward CANCELLED")
             await self.a_agent.send_message("action", "ntm")
             self.state = self.STOPPED
 
@@ -190,7 +190,7 @@ class Turn:
                         return True
                 await asyncio.sleep(0)
         except asyncio.CancelledError:
-            print("***** TASK Turn CANCELLED")
+            # print("***** TASK Turn CANCELLED")
             await self.a_agent.send_message("action", "nt")
 
 """
@@ -380,7 +380,7 @@ class Avoid:
 					)
 					
 					if corner_trap:
-						print("CORNER TRAP DETECTED! Executing escape maneuver")
+						# print("CORNER TRAP DETECTED! Executing escape maneuver")
 						direction = "tl" if left_hits <= right_hits else "tr"
 						await self.a_agent.send_message("action", "stop")
 						await asyncio.sleep(0.1)
@@ -406,7 +406,7 @@ class Avoid:
 					await asyncio.sleep(0.5)
 		
 		except asyncio.CancelledError:
-			print("***** TASK Avoid CANCELLED")
+			# print("***** TASK Avoid CANCELLED")
 			await self.a_agent.send_message("action", "nt")
 			self.state = self.STOPPED
 
@@ -447,7 +447,7 @@ class GetFlower:
 				self.ray_check_order.append(left)
 			if right < num_rays:
 				self.ray_check_order.append(right)
-		print(f"Ray check order: {self.ray_check_order}")
+		# print(f"Ray check order: {self.ray_check_order}")
 
 	async def run(self):
 		try:
@@ -474,13 +474,13 @@ class GetFlower:
 				current_flower_count = flower_count(self.i_state)
 				# print(f"Flower count: {current_flower_count}, Before: {before_flower_count}")
 				if current_flower_count > before_flower_count:
-					print("Flower collected!")
+					# print("Flower collected!")
 					await self.a_agent.send_message("action", "stop")
 					return
 				await asyncio.sleep(0.5)
 
 		except asyncio.CancelledError:
-			print("***** TASK GetFlower CANCELLED")
+			# print("***** TASK GetFlower CANCELLED")
 			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
@@ -518,7 +518,7 @@ class GetAstronaut:
 				self.ray_check_order.append(left)
 			if right < num_rays:
 				self.ray_check_order.append(right)
-		print(f"Ray check order: {self.ray_check_order}")
+		# print(f"Ray check order: {self.ray_check_order}")
 
 	async def run(self):
 		try:
@@ -539,9 +539,9 @@ class GetAstronaut:
 							self.side = 1
 						
 						astronautDetected=True
-						print(ray[Sensors.RayCastSensor.DISTANCE])
+						# print(ray[Sensors.RayCastSensor.DISTANCE])
 						if ray[Sensors.RayCastSensor.DISTANCE]<1:
-							print(ray[Sensors.RayCastSensor.DISTANCE])
+							# print(ray[Sensors.RayCastSensor.DISTANCE])
 							astronautBitten=True
 						else:
 							astronautBitten=False
@@ -554,14 +554,14 @@ class GetAstronaut:
 				await asyncio.sleep(0.5)
 
 				if astronautBitten:
-					print("Astronaut bitten!") 
+					# print("Astronaut bitten!") 
 					global bitten_astronaut
 					if not bitten_astronaut:
 						bitten_astronaut=True
 					return True
 				
 		except asyncio.CancelledError:
-			print("***** TASK GetAstronaut CANCELLED")
+			# print("***** TASK GetAstronaut CANCELLED")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -585,7 +585,7 @@ class MoveAway:
 			
 			await asyncio.sleep(4) 
 
-			print("MoveAway completed")
+			# print("MoveAway completed")
 			global bitten_astronaut
 			if bitten_astronaut:
 				bitten_astronaut=False
@@ -593,7 +593,7 @@ class MoveAway:
 			return True
 		
 		except asyncio.CancelledError:
-			print("***** TASK MoveAway CANCELLED")
+			# print("***** TASK MoveAway CANCELLED")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -611,15 +611,15 @@ class ReturnAndUnload:
 			while True:
 				# Check if we are at base
 				if self.i_state.currentNamedLoc == "Base":
-					print("At base")
+					# print("At base")
 					await self.a_agent.send_message("action", "stop")
 					await self.a_agent.send_message("action", "nt")
 					await asyncio.sleep(0.2)
 					await self.a_agent.send_message("action", "leave,AlienFlower,2")
-					print("Unloaded flowers")
+					# print("Unloaded flowers")
 					return True
 				else:
-					print("Returning to base")
+					# print("Returning to base")
 					# await self.a_agent.send_message("action", "walk_to,Base")
 					await self.a_agent.send_message("action", "teleport_to,Base")
 					await asyncio.sleep(0.5)
@@ -704,7 +704,7 @@ class EscapeFromCritter:
             return True                            # SUCCESS – escape finished
 
         except asyncio.CancelledError:
-            print("***** TASK EscapeFromSingleCritter CANCELLED")
+            # print("***** TASK EscapeFromSingleCritter CANCELLED")
             # stop turning impulses; leave forward control to caller
             await self.agent.send_message("action", "nt")
             return False
