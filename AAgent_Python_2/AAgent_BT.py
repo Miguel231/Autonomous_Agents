@@ -159,8 +159,7 @@ class AAgent:
             "ForwardDist": Goals_BT.ForwardDist(self, -1, 5, 10),
             "Turn": Goals_BT.Turn(self),
             "RandomRoam": Goals_BT.RandomRoam(self),
-            "Avoid": Goals_BT.Avoid(self),
-            "HarvestCycle": Goals_BT.HarvestCycle(self)
+            "Avoid": Goals_BT.Avoid(self)
         }
 
         # Reference to the possible behaviour trees the agent can execute
@@ -191,7 +190,7 @@ class AAgent:
             param_json = json.dumps(self.AgentParameters)
             print("Sending the initial parameters: " + param_json)
             await self.send_message("initial_params", param_json)
-        except:
+        except:  # noqa: E722
             print("Failed connection")
             self.exit_event.set()
 
@@ -299,7 +298,7 @@ class AAgent:
                     print(f"Message: {msg_data}")
             else:
                 print("Received unknown message - Type: " + msg_dict["Type"] + "- Content: " + msg_dict["Content"])
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             print(f"Failed JSON decoding of the received message: {msg_data}")
         except Exception as e:
             print(f"Exception2: {e}")

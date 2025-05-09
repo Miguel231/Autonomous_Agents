@@ -6,7 +6,7 @@
   "AgentParameters": {
     "type": "AAgentCritterMantaRay",
     "name": "Critter",
-    "interactable": false,
+    "interactable": true,
     "spawn_area": "HarvestZone",
     "spawn_point": -1,
     "spawn_distance": 2,

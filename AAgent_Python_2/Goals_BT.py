@@ -2,7 +2,6 @@ import math
 import random
 import asyncio
 import Sensors
-from collections import Counter
 
 """
 --------------------------------------------------------------------------------------------------------------------------------------
@@ -408,13 +407,10 @@ class Avoid:
 		
 		except asyncio.CancelledError:
 			print("***** TASK Avoid CANCELLED")
-			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 			self.state = self.STOPPED
 
-"""
---------------------------------------------------------------------------------------------------------------------------------------
-"""
+
 def flower_count(i_state):
     """
     flowers in the inventory
@@ -423,35 +419,6 @@ def flower_count(i_state):
         (item['amount'] for item in i_state.myInventoryList if item['name'] == 'AlienFlower'),
         0 # If not found
     )
-
-
-# class GetFlower:
-#     """
-#     Get the flower and check inventory
-#     """
-
-#     def __init__(self, a_agent, target_pos: dict, tolerance: float = 1.0):
-#         self.a_agent = a_agent
-#         self.i_state = a_agent.i_state
-#         self.target_pos = target_pos
-#         self.tolerance = tolerance
-
-#     async def run(self):
-#         try:
-#             #move to the flower
-#             await self.a_agent.send_message("action",f"walk_to,{self.target_pos['x']},{self.target_pos['y']},{self.target_pos['z']}")
-
-#             #wait
-#             while True:
-#                 await asyncio.sleep(0.2)
-#                 dist = calculate_distance(self.i_state.position, self.target_pos)
-#                 if dist <= self.tolerance:
-            
-#                     return True  # SUCCESS
-
-#         except asyncio.CancelledError:
-#             await self.a_agent.send_message("action", "stop")
-#             return False
 
 
 class GetFlower:
@@ -518,7 +485,7 @@ class GetFlower:
 			await self.a_agent.send_message("action", "nt")
 
 
-bitten_astronaut=False
+bitten_astronaut=False # global so all critters can act when any of them bites an astronaut
 
 
 def is_astronaut_bitten():
@@ -589,12 +556,12 @@ class GetAstronaut:
 				if astronautBitten:
 					print("Astronaut bitten!") 
 					global bitten_astronaut
-					if(not bitten_astronaut): bitten_astronaut=True
+					if not bitten_astronaut:
+						bitten_astronaut=True
 					return True
 				
 		except asyncio.CancelledError:
-			print(f"***** TASK GetAstronaut CANCELLED")
-			# await self.a_agent.send_message("action", "stop")
+			print("***** TASK GetAstronaut CANCELLED")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -620,13 +587,13 @@ class MoveAway:
 
 			print("MoveAway completed")
 			global bitten_astronaut
-			if(bitten_astronaut): bitten_astronaut=False
+			if bitten_astronaut:
+				bitten_astronaut=False
 
 			return True
 		
 		except asyncio.CancelledError:
 			print("***** TASK MoveAway CANCELLED")
-			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -657,50 +624,7 @@ class ReturnAndUnload:
 					await self.a_agent.send_message("action", "teleport_to,Base")
 					await asyncio.sleep(0.5)
 		except asyncio.CancelledError:
-			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
-
-
-class HarvestCycle:
-
-    def __init__(self, a_agent):
-        self.a_agent = a_agent
-        self.rc_sensor = a_agent.rc_sensor
-        self.i_state   = a_agent.i_state
-
-    async def run(self):
-        try:
-            while True:
-                # --- PHASE 1: GET -------------------------------------------------
-                while flower_count(self.i_state) < 2:
-                    obj_info = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
-                    target = next((o["position"] for o in obj_info if o and o["tag"] == "AlienFlower"), None)
-
-                    if target:
-                        ok = await GetFlower(self.a_agent, target).run()
-                        if not ok:
-                            break  
-                    else:
-                        await RandomRoam(self.a_agent).run()
-
-                # --- PHASE 2: FULL INVENTARY ---------------------------------------
-                if flower_count(self.i_state) >= 2:
-                    #GO TO BASE
-                    await self.a_agent.send_message("action", "teleport_to,Base")
-                    
-                    while not self.a_agent.at_base():
-                        await asyncio.sleep(0.2)
-
-                    
-                    for item in self.i_state.myInventoryList:
-                        if item["name"] == "AlienFlower":
-                            item["amount"] = 0
-                    await self.a_agent.send_message("action", "leave,AlienFlower, 2")
-
-        except asyncio.CancelledError:
-            await self.a_agent.send_message("action","stop")
-
-
 
 
 class EscapeFromCritter:
