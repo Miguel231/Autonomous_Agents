@@ -2,7 +2,6 @@ import math
 import random
 import asyncio
 import Sensors
-from collections import Counter
 
 """
 --------------------------------------------------------------------------------------------------------------------------------------
@@ -17,7 +16,7 @@ def angle_delta(current, previous):
 			previous=10, current=350 -> 20
 			previous=350, current=10 -> 20
 	"""
-	raw_diff = (current - previous) % 360
+	raw_diff = (current - previous) % 360  # this is for that we always get angle between 0 and 360        
 	return 360 - raw_diff if raw_diff > 180 else raw_diff
 
 async def execute_turn(a_agent, i_state, direction, angle):
@@ -408,13 +407,10 @@ class Avoid:
 		
 		except asyncio.CancelledError:
 			print("***** TASK Avoid CANCELLED")
-			await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 			self.state = self.STOPPED
 
-"""
---------------------------------------------------------------------------------------------------------------------------------------
-"""
+
 def flower_count(i_state):
     """
     flowers in the inventory
@@ -423,35 +419,6 @@ def flower_count(i_state):
         (item['amount'] for item in i_state.myInventoryList if item['name'] == 'AlienFlower'),
         0 # If not found
     )
-
-
-# class GetFlower:
-#     """
-#     Get the flower and check inventory
-#     """
-
-#     def __init__(self, a_agent, target_pos: dict, tolerance: float = 1.0):
-#         self.a_agent = a_agent
-#         self.i_state = a_agent.i_state
-#         self.target_pos = target_pos
-#         self.tolerance = tolerance
-
-#     async def run(self):
-#         try:
-#             #move to the flower
-#             await self.a_agent.send_message("action",f"walk_to,{self.target_pos['x']},{self.target_pos['y']},{self.target_pos['z']}")
-
-#             #wait
-#             while True:
-#                 await asyncio.sleep(0.2)
-#                 dist = calculate_distance(self.i_state.position, self.target_pos)
-#                 if dist <= self.tolerance:
-            
-#                     return True  # SUCCESS
-
-#         except asyncio.CancelledError:
-#             await self.a_agent.send_message("action", "stop")
-#             return False
 
 
 class GetFlower:
@@ -514,11 +481,11 @@ class GetFlower:
 
 		except asyncio.CancelledError:
 			print("***** TASK GetFlower CANCELLED")
-			await self.a_agent.send_message("action", "stop")
+			# await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
 
-bitten_astronaut=False
+bitten_astronaut=False # global so all critters can act when any of them bites an astronaut
 
 
 def is_astronaut_bitten():
@@ -589,12 +556,12 @@ class GetAstronaut:
 				if astronautBitten:
 					print("Astronaut bitten!") 
 					global bitten_astronaut
-					if(not bitten_astronaut): bitten_astronaut=True
+					if not bitten_astronaut:
+						bitten_astronaut=True
 					return True
 				
 		except asyncio.CancelledError:
-			print(f"***** TASK GetAstronaut CANCELLED")
-			await self.a_agent.send_message("action", "stop")
+			print("***** TASK GetAstronaut CANCELLED")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -620,13 +587,13 @@ class MoveAway:
 
 			print("MoveAway completed")
 			global bitten_astronaut
-			if(bitten_astronaut): bitten_astronaut=False
+			if bitten_astronaut:
+				bitten_astronaut=False
 
 			return True
 		
 		except asyncio.CancelledError:
 			print("***** TASK MoveAway CANCELLED")
-			await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
 
@@ -657,45 +624,89 @@ class ReturnAndUnload:
 					await self.a_agent.send_message("action", "teleport_to,Base")
 					await asyncio.sleep(0.5)
 		except asyncio.CancelledError:
-			await self.a_agent.send_message("action", "stop")
 			await self.a_agent.send_message("action", "nt")
 
 
-class HarvestCycle:
+class EscapeFromCritter:
+    """
+    Reflex escape for exactly ONE critter in view.
+    Turns away from the critter and dashes forward without stopping.
+    """
 
-    def __init__(self, a_agent):
-        self.a_agent = a_agent
-        self.rc_sensor = a_agent.rc_sensor
-        self.i_state   = a_agent.i_state
+    front_thresh_deg = 5.0      # |angle| ≤ this → treat as “front”
+    turn_deg         = 90       # snap-turn amount
+    dash_time        = 0.1      # seconds to keep dashing after the turn
+    turn_tick        = 0.05     # sleep while applying turn impulses
 
+    def __init__(self, agent):
+        self.agent     = agent
+        self.rc_sensor = agent.rc_sensor
+        self.i_state   = agent.i_state
+
+    # ---------- helper: turn while still moving forward ------------------
+    async def turn_while_moving(self, direction, degrees):
+        """Keep 'mf' active; pulse 'tl' or 'tr' until we've rotated `degrees`."""
+        total_rot = 0.0
+        prev_yaw  = self.i_state.rotation["y"]
+
+        # make sure we’re already driving forward
+        # await self.agent.send_message("action", "mf")
+
+        while total_rot < degrees:
+            await self.agent.send_message("action", direction)
+            await asyncio.sleep(self.turn_tick)
+            cur_yaw   = self.i_state.rotation["y"]
+            # angle_delta = shortest arc difference (0-180)
+			# we are doing way for example delta = cur_yaw - prev_yaw: 5 - 350 = -345
+			# this is meaningless, in reality we have turned 15 degrees to the right
+	
+            delta     = (cur_yaw - prev_yaw) % 360
+			# Clamp angle difference to shortest arc (e.g., 270° → 90° turn the other way)
+			# Example: from 350° to 80° → (delta = 90, not 270)
+            delta     = 360 - delta if delta > 180 else delta
+            total_rot += delta
+            prev_yaw  = cur_yaw
+
+        # stop turning; keep forward motion
+        await self.agent.send_message("action", "nt")
+
+    # ---------- main coroutine ------------------------------------------
     async def run(self):
         try:
-            while True:
-                # --- PHASE 1: GET -------------------------------------------------
-                while flower_count(self.i_state) < 2:
-                    obj_info = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
-                    target = next((o["position"] for o in obj_info if o and o["tag"] == "AlienFlower"), None)
+            # scan once, react once, then return SUCCESS
+            hits      = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.HIT]
+            info      = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
+            angles    = self.rc_sensor.sensor_rays[Sensors.RayCastSensor.ANGLE]
 
-                    if target:
-                        ok = await GetFlower(self.a_agent, target).run()
-                        if not ok:
-                            break  
-                    else:
-                        await RandomRoam(self.a_agent).run()
+            critter_angle = None
+            for hit, inf, ang in zip(hits, info, angles):
+                if hit and inf and inf["tag"] == "CritterMantaRay":
+                    critter_angle = ang          # we found THE critter
+                    break
 
-                # --- PHASE 2: FULL INVENTARY ---------------------------------------
-                if flower_count(self.i_state) >= 2:
-                    #GO TO BASE
-                    await self.a_agent.send_message("action", "teleport_to,Base")
-                    
-                    while not self.a_agent.at_base():
-                        await asyncio.sleep(0.2)
+            if critter_angle is None:
+                # no critter in sight -> nothing to flee from
+                return True
 
-                    
-                    for item in self.i_state.myInventoryList:
-                        if item["name"] == "AlienFlower":
-                            item["amount"] = 0
-                    await self.a_agent.send_message("action", "leave,AlienFlower, 2")
+            # decide escape side
+            if abs(critter_angle) <= self.front_thresh_deg:       # straight ahead
+                turn_dir = random.choice(["tl", "tr"])
+            else:
+                turn_dir = "tr" if critter_angle < 0 else "tl"    # left critter -> turn right
+
+            # execute snap-turn while moving
+            await self.turn_while_moving(turn_dir, self.turn_deg)
+
+            # dash away
+            await asyncio.sleep(self.dash_time)   # still in 'mf' state
+            await self.agent.send_message("action", "ntm")  # stop forward motor
+
+            return True                            # SUCCESS – escape finished
 
         except asyncio.CancelledError:
-            await self.a_agent.send_message("action","stop")
+            print("***** TASK EscapeFromSingleCritter CANCELLED")
+            # stop turning impulses; leave forward control to caller
+            await self.agent.send_message("action", "nt")
+            return False
+
+

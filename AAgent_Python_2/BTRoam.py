@@ -1,6 +1,4 @@
 import asyncio
-import random
-import py_trees
 import py_trees as pt
 from py_trees import common
 import Goals_BT
@@ -90,33 +88,6 @@ class BN_TurnRandom(pt.behaviour.Behaviour):
         # Finishing the behaviour, therefore we have to stop the associated task
         self.logger.debug("Terminate BN_TurnRandom")
         self.my_goal.cancel()
-
-"""
-class BN_DetectFlower(pt.behaviour.Behaviour):
-    def __init__(self, aagent):
-        self.my_goal = None
-        # print("Initializing BN_DetectFlower")
-        super(BN_DetectFlower, self).__init__("BN_DetectFlower")
-        self.my_agent = aagent
-
-    def initialise(self):
-        pass
-
-    def update(self):
-        sensor_obj_info = self.my_agent.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
-        for index, value in enumerate(sensor_obj_info):
-            if value:  # there is a hit with an object
-                if value["tag"] == "AlienFlower":  # If it is a flower
-                    # print("Flower detected!")
-                    # print("BN_DetectFlower completed with SUCCESS")
-                    return pt.common.Status.SUCCESS
-        # print("No flower...")
-        # print("BN_DetectFlower completed with FAILURE")
-        return pt.common.Status.FAILURE
-
-    def terminate(self, new_status: common.Status):
-        pass
-"""
 
 
 class BN_DetectObject(pt.behaviour.Behaviour):
@@ -330,55 +301,101 @@ class BN_ReturnAndUnload(pt.behaviour.Behaviour):
 		self.logger.debug("Terminate BN_ReturnBase")
 		self.my_goal.cancel()
 
-"""
-class BTRoam:
-    def __init__(self, aagent):
-        # py_trees.logging.level = py_trees.logging.Level.DEBUG
 
-        self.aagent = aagent
+# !!!! if value["tag"] == "CritterMantaRay", means the name "CritterMantaRay"
+"""PART 3: Scenario Collect-and-run"""
+class BN_Detect_Critter(pt.behaviour.Behaviour):
+	def __init__(self, aagent, tag_object):
+		super(BN_Detect_Critter, self).__init__("BN_Detect_Critter")
+		self.logger.debug("Initializing BN_Detect_Critter")
+		self.my_agent = aagent
+		self.tag_object=tag_object
 
-        # VERSION 1
-        # self.root = pt.composites.Sequence(name="Sequence", memory=True)
-        # self.root.add_children([BN_TurnRandom(aagent),
-        #                         BN_ForwardRandom(aagent),
-        #                         BN_DoNothing(aagent)])
+	def initialise(self):
+		pass
 
-        # VERSION 2
-        self.root = pt.composites.Parallel("Parallel", policy=py_trees.common.ParallelPolicy.SuccessOnAll())
-        self.root.add_children([BN_ForwardRandom(aagent), BN_TurnRandom(aagent)])
+	def update(self):
+		sensor_obj_info = self.my_agent.rc_sensor.sensor_rays[Sensors.RayCastSensor.OBJECT_INFO]
+		for index, value in enumerate(sensor_obj_info):
+			if value:  # there is a hit with an object
+				if value["tag"] == self.tag_object:  # If it is a Critter
+					# print("Critter detected!")
+					# print("Detect_Critter completed with SUCCESS")
+					return pt.common.Status.SUCCESS
+		# print("No critter...")
+		# print("Detect_Critter completed with FAILURE")
+		return pt.common.Status.FAILURE
+		
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate BN_Detect_Critter")
 
-        # VERSION 3 (with DetectFlower)
-        # detection = pt.composites.Sequence(name="DetectFlower", memory=True)
-        # detection.add_children([BN_DetectFlower(aagent), BN_DoNothing(aagent)])
-        #
-        # roaming = pt.composites.Parallel("Parallel", policy=py_trees.common.ParallelPolicy.SuccessOnAll())
-        # roaming.add_children([BN_ForwardRandom(aagent), BN_TurnRandom(aagent)])
-        #
-        # self.root = pt.composites.Selector(name="Selector", memory=False)
-        # self.root.add_children([detection, roaming])
 
-        self.behaviour_tree = pt.trees.BehaviourTree(self.root)
 
-    # Function to set invalid state for a node and its children recursively
-    def set_invalid_state(self, node):
-        node.status = pt.common.Status.INVALID
-        for child in node.children:
-            self.set_invalid_state(child)
+class BN_EscapeFromCritter(pt.behaviour.Behaviour):
+	def __init__(self, aagent):
+		self.my_goal = None
+		super(BN_EscapeFromCritter, self).__init__("BN_EscapeFromCritter")
+		self.logger.debug("Initializing BN_EscapeFromCritter")
+		self.my_agent = aagent
 
-    def stop_behaviour_tree(self):
-        # Setting all the nodes to invalid, we force the associated asyncio tasks to be cancelled
-        self.set_invalid_state(self.root)
+	def initialise(self):
+		self.logger.debug("Create Goals_BT.BN_EscapeFromCritter task")
+		self.my_goal = asyncio.create_task(Goals_BT.EscapeFromCritter(self.my_agent).run())
 
-    async def tick(self):
-        self.behaviour_tree.tick()
-        await asyncio.sleep(0)
-"""
+	def update(self):
+		if not self.my_goal.done():
+			return pt.common.Status.RUNNING
+		else:
+			if self.my_goal.result():
+				self.logger.debug("EscapeFromCritter completed with SUCCESS")
+				# print("BN_ReturnBase completed with SUCCESS")
+				return pt.common.Status.SUCCESS
+			else:
+				self.logger.debug("EscapeFromCritter completed with FAILURE")
+				# print("BN_ReturnBase completed with FAILURE")
+				return pt.common.Status.FAILURE
+
+	def terminate(self, new_status: common.Status):
+		# Finishing the behaviour, therefore we have to stop the associated task
+		self.logger.debug("Terminate EscapeFromCritter")
+		self.my_goal.cancel()
+
+
+
+class BN_DetectFrozen(pt.behaviour.Behaviour): 
+	def __init__(self, aagent): 
+		self.my_goal = None 
+		# print("Initializing BN_DetectInventoryFull") 
+		super(BN_DetectFrozen, self).__init__("BN_DetectFrozen") 
+		self.my_agent = aagent
+		self.i_state = aagent.i_state 
+	
+	def initialise(self): 
+		pass
+	
+	def update(self):
+		if self.i_state.isFrozen:
+			return pt.common.Status.SUCCESS
+		return pt.common.Status.FAILURE
+	
+	def terminate(self, new_status: common.Status):
+		pass
+
+
+
 
 class AstronautBT:
 	def __init__(self, aagent):
 		# py_trees.logging.level = py_trees.logging.Level.DEBUG
 
 		self.aagent = aagent
+
+		frozen = pt.composites.Sequence(name="Sequence_frozen", memory=True)
+		frozen.add_children([BN_DetectFrozen(aagent), BN_DoNothing(aagent)])
+
+		escape_critter = pt.composites.Sequence(name="Escape Critter", memory=False)
+		escape_critter.add_children([BN_Detect_Critter(aagent, "CritterMantaRay"), BN_EscapeFromCritter(aagent)])
 		
 		unloading = pt.composites.Sequence(name="Unload Sequence", memory=False)
 		unloading.add_children([BN_Full(aagent), BN_ReturnAndUnload(aagent)])
@@ -390,7 +407,7 @@ class AstronautBT:
 		roaming.add_children([get_flower, BN_Roam(aagent)])
 
 		self.root = pt.composites.Selector(name="Selector", memory=False)
-		self.root.add_children([unloading, roaming])
+		self.root.add_children([frozen, escape_critter, unloading, roaming])
 
 		self.behaviour_tree = pt.trees.BehaviourTree(self.root)
 
@@ -421,8 +438,11 @@ class CritterBT:
 		get_astronaut = pt.composites.Sequence(name="Get Astronaut", memory=False)
 		get_astronaut.add_children([BN_DetectObject(aagent, "Astronaut"), BN_MoveToAstronaut(aagent)])
 
+		roaming = pt.composites.Selector(name="Roaming", memory=False)
+		roaming.add_children([get_astronaut, BN_Roam(aagent)])
+
 		self.root = pt.composites.Selector(name="Selector", memory=False)
-		self.root.add_children([move_away, get_astronaut, BN_Roam(aagent)])
+		self.root.add_children([move_away, roaming])
 
 
 		self.behaviour_tree = pt.trees.BehaviourTree(self.root)

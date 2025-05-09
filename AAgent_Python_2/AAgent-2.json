@@ -11,13 +11,12 @@
     "spawn_point": -1,
     "spawn_distance": 2,
     "debug_mode": false,
-    "manual_control": false,
-    "initial_task": "bt:CritterBT",
+    "manual_control": false, 
+    "initial_task": "bt:CritterBT", 
     "ray_perception_sensor_param": [2,45,0,5]
   },
   "Misc": {
     "python_gui_monitor": false
   }
 }
-
 
